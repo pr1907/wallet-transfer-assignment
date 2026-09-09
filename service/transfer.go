@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Robustrade/wallet-transfer-assignment/model"
 	"github.com/Robustrade/wallet-transfer-assignment/repository"
@@ -101,6 +102,12 @@ func (s *TransferService) CreateTransfer(
 
 	created, err := s.transferRepo.Create(ctx, tx, transfer)
 	if err != nil {
+		var pgErr *pgconn.PgError
+
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return nil, ErrWalletNotFound
+		}
+
 		return nil, fmt.Errorf("create transfer: %w", err)
 	}
 
