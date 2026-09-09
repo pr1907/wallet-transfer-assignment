@@ -27,7 +27,7 @@ func setupTestService(t *testing.T) (*service.TransferService, *sql.DB) {
 	}
 
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		t.Fatal(err)
 	}
 
@@ -43,7 +43,7 @@ func setupTestService(t *testing.T) (*service.TransferService, *sql.DB) {
 	)
 
 	t.Cleanup(func() {
-		db.Close()
+		_ = db.Close()
 	})
 
 	return svc, db

@@ -86,7 +86,9 @@ func (s *TransferService) CreateTransfer(
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
 
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Lock both wallets in deterministic order.
 	// This prevents concurrent transfers from acquiring

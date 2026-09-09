@@ -17,7 +17,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		_ = db.Close()
+	}()
 
 	walletRepo := repository.NewWalletRepository(db)
 	transferRepo := repository.NewTransferRepository(db)

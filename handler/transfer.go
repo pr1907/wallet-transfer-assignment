@@ -35,7 +35,9 @@ func (h *TransferHandler) CreateTransfer(
 		return
 	}
 
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	var req model.TransferRequest
 
