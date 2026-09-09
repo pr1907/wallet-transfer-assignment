@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Robustrade/wallet-transfer-assignment/model"
 	"github.com/Robustrade/wallet-transfer-assignment/repository"
@@ -89,6 +88,38 @@ func (s *TransferService) CreateTransfer(
 
 	defer tx.Rollback()
 
+	// Lock both wallets in deterministic order.
+	// This prevents concurrent transfers from acquiring
+	// wallet locks in different orders.
+	walletIDs := []string{
+		req.FromWalletID,
+		req.ToWalletID,
+	}
+
+	sort.Strings(walletIDs)
+
+	wallets := make(map[string]*model.Wallet)
+
+	for _, walletID := range walletIDs {
+		wallet, err := s.walletRepo.GetForUpdate(
+			ctx,
+			tx,
+			walletID,
+		)
+		if err != nil {
+			if strings.Contains(err.Error(), "wallet not found") {
+				return nil, fmt.Errorf("%w: %s", ErrWalletNotFound, walletID)
+			}
+
+			return nil, fmt.Errorf("lock wallet: %w", err)
+		}
+
+		wallets[walletID] = wallet
+	}
+
+	fromWallet := wallets[req.FromWalletID]
+	toWallet := wallets[req.ToWalletID]
+
 	transfer := &model.Transfer{
 		ID:             uuid.New().String(),
 		IdempotencyKey: req.IdempotencyKey,
@@ -100,14 +131,9 @@ func (s *TransferService) CreateTransfer(
 		UpdatedAt:      time.Now(),
 	}
 
+	// Atomically claim the idempotency key.
 	created, err := s.transferRepo.Create(ctx, tx, transfer)
 	if err != nil {
-		var pgErr *pgconn.PgError
-
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return nil, ErrWalletNotFound
-		}
-
 		return nil, fmt.Errorf("create transfer: %w", err)
 	}
 
@@ -136,37 +162,6 @@ func (s *TransferService) CreateTransfer(
 
 		return existing, nil
 	}
-
-	// Lock both wallets in deterministic order.
-	walletIDs := []string{
-		req.FromWalletID,
-		req.ToWalletID,
-	}
-
-	sort.Strings(walletIDs)
-
-	wallets := make(map[string]*model.Wallet)
-
-	for _, walletID := range walletIDs {
-		wallet, err := s.walletRepo.GetForUpdate(
-			ctx,
-			tx,
-			walletID,
-		)
-		if err != nil {
-			if strings.Contains(err.Error(), "wallet not found") {
-				s.markFailed(ctx, tx, transfer.ID)
-				return nil, fmt.Errorf("%w: %s", ErrWalletNotFound, walletID)
-			}
-
-			return nil, fmt.Errorf("lock wallet: %w", err)
-		}
-
-		wallets[walletID] = wallet
-	}
-
-	fromWallet := wallets[req.FromWalletID]
-	toWallet := wallets[req.ToWalletID]
 
 	// Check balance while the wallet is still locked.
 	if fromWallet.Balance < amount {
