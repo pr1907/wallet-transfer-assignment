@@ -120,15 +120,14 @@ The high-level flow is:
 
 1. Validate the incoming request.
 2. Begin a database transaction.
-3. Attempt to create the transfer using the supplied idempotency key.
-4. If the idempotency key already exists:
-
-   * fetch the existing transfer;
-   * verify that the request parameters match the original request;
-   * return the existing transfer without applying the transfer again.
-5. If the transfer is newly created, lock the source and destination wallet rows using `SELECT ... FOR UPDATE`.
-6. Validate that both wallets exist.
-7. Check that the source wallet has sufficient balance while the wallet rows are locked.
+3. Lock the source and destination wallet rows using `SELECT ... FOR UPDATE` in deterministic order based on wallet identifiers.
+4. Validate that both wallets exist.
+5. Attempt to create the transfer using the supplied idempotency key.
+6. If the idempotency key already exists:
+   - fetch the existing transfer;
+   - verify that the request parameters match the original request;
+   - return the existing transfer without applying the transfer again.
+7. If the transfer is newly created, check that the source wallet has sufficient balance while the wallet rows are locked.
 8. If the balance is insufficient, mark the transfer as `FAILED` and commit that state without changing wallet balances or creating successful-transfer ledger entries.
 9. Debit the source wallet.
 10. Credit the destination wallet.
@@ -138,7 +137,9 @@ The high-level flow is:
 14. Commit the transaction.
 15. Return the transfer result.
 
-Wallets are locked in deterministic order based on their identifiers to reduce the possibility of deadlocks when concurrent transfers involve the same wallets in opposite directions.
+Wallets are locked in deterministic order based on their identifiers. This ensures that concurrent transfers involving the same wallets acquire locks in the same order and reduces the possibility of deadlocks.
+
+The wallet locks are acquired before inserting the transfer record. This avoids lock-ordering issues caused by foreign-key checks on the `transfers` table while another transaction is attempting to lock the same wallet rows.
 
 If any technical operation required for a successful transfer fails, the transaction is rolled back so that wallet balances, ledger entries, and transfer state are not left partially updated.
 
